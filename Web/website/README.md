@@ -9,6 +9,8 @@ This folder contains the local variant that loads **your** trained weights.
 ```text
 website/
   backend/
+    server.py                  FastAPI inference API used by the web UI (port 8000)
+    requirements.txt
     server.js                  Express API (predict + history, SQLite persistence)
     package.json
     database/                  hnrs.sqlite created on first run
@@ -21,10 +23,27 @@ website/
 
 ```bash
 cd website/backend
+
+# inference server the UI talks to (http://127.0.0.1:8000/predict)
+pip install -r requirements.txt
+python server.py
+
+# history API (optional, http://localhost:5000)
 npm install
 pip install -r models_bridge/requirements.txt
-npm start           # http://localhost:5000
+npm start
 ```
+
+`POST /predict` takes `{ task, imageDataUrl }` where `task` is `auto`, `digit`,
+`letter` or `text`. The image is binarised, split into characters with connected
+components and each glyph is normalised MNIST-style (20×20 aspect fit, centred by
+centre of mass) before classification. With `auto`, every character goes through
+both `digit_cnn_model.keras` and `letter_customcnn.pth` and the more confident
+answer wins, so mixed strings such as `12A` are read correctly. `text` runs
+`best_crnn_model.pt` over the whole line with CTC greedy decoding.
+
+Set `GEMINI_API_KEY` to enable the optional Gemini post-check
+(`pip install google-generativeai`); without the key the local models are used as-is.
 
 Place your trained weights in the repository-level `Models/` folder:
 

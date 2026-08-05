@@ -1,0 +1,10 @@
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6
+numpy>=1.26
+pillow>=10.3
+opencv-python-headless>=4.9
+tensorflow>=2.16
+torch>=2.3
+# optional: only needed when GEMINI_API_KEY is set
+# google-generativeai>=0.7

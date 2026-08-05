@@ -28,7 +28,7 @@ export function PredictionCard({ result, model, pending }: PredictionCardProps) 
           <h2 className="mt-1 text-lg font-semibold">Prediction</h2>
         </div>
         <Badge variant="outline" className="font-mono text-[11px]">
-          {model.key}
+          {model.weights}
         </Badge>
       </div>
 
@@ -83,9 +83,31 @@ export function PredictionCard({ result, model, pending }: PredictionCardProps) 
         </div>
       </div>
 
+      {result && result.characters.length > 0 ? (
+        <div className="mt-5">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-accent">
+            Per-character routing
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {result.characters.map((entry, index) => (
+              <div
+                key={`${entry.char}-${index}`}
+                className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-center"
+              >
+                <p className="font-mono text-xl font-bold text-primary">{entry.char}</p>
+                <p className="font-mono text-[10px] text-muted-foreground">
+                  {formatConfidence(entry.confidence)}
+                </p>
+                <p className="font-mono text-[10px] text-muted-foreground">{entry.model}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-5">
         <p className="font-mono text-[11px] uppercase tracking-wider text-accent">
-          Class probabilities
+          Class probabilities{result && result.characters.length > 1 ? " · first character" : ""}
         </p>
         <div className="mt-2 h-48 w-full">
           {chartData.length > 0 ? (

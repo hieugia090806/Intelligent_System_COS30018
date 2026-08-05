@@ -3,6 +3,7 @@ import {
   InferenceInput,
   labelsFor,
   softmaxFallback,
+  type CharacterPrediction,
   type ClassProbability,
   type InferenceResult,
 } from "./inference-shared";
@@ -36,6 +37,7 @@ export const runInference = createServerFn({ method: "POST" })
         predictedText?: string;
         confidence?: number;
         top_classes?: { label: string; probability: number }[];
+        characters?: { char?: string; confidence?: number; model?: string }[];
         reasoning?: string;
       };
 
@@ -61,15 +63,23 @@ export const runInference = createServerFn({ method: "POST" })
         }))
         .filter((entry) => allowed.has(entry.label));
 
-      const byLabel = new Map(reported.map((entry) => [entry.label, entry.probability]));
       const probabilities: ClassProbability[] = reported.length
-        ? labels.map((label) => ({ label, probability: byLabel.get(label) ?? 0 }))
+        ? reported
         : softmaxFallback(labels, predictedText.charAt(0) || labels[0]!, confidence);
+
+      const characters: CharacterPrediction[] = (result.characters ?? [])
+        .map((entry) => ({
+          char: String(entry.char ?? "").toUpperCase(),
+          confidence: Math.min(1, Math.max(0, Number(entry.confidence ?? 0))),
+          model: String(entry.model ?? ""),
+        }))
+        .filter((entry) => allowed.has(entry.char));
 
       return {
         predictedText: predictedText || "?",
         confidence: predictedText ? confidence : 0,
         probabilities,
+        characters,
         latencyMs,
         reasoning: result.reasoning || "Executed using local trained model weights.",
       };
