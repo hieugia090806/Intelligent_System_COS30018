@@ -1,1 +1,0 @@
-# Group1_ThemeB_HandwrittenNumberRecognitionSystem
