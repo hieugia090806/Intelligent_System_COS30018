@@ -2,6 +2,7 @@ export const HEADER_DESCRIPTION =
   "This Handwritten Recognition System is an advanced AI-powered platform utilizing custom Convolutional Neural Networks (CNN) to accurately classify, read, and interpret isolated handwritten digits (0-9) and uppercase English characters (A-Z) in real-time from various input sources.";
 
 export type ModelKey =
+  | "auto"
   | "digit_cnn_model.keras"
   | "letter_customcnn.pth"
   | "best_crnn_model.pt";
@@ -15,10 +16,12 @@ export type InputType =
 export interface ModelInfo {
   key: ModelKey;
   name: string;
-  framework: "Keras / TensorFlow" | "PyTorch";
+  framework: "Keras / TensorFlow" | "PyTorch" | "Keras + PyTorch";
   architecture: string;
   classes: string;
-  task: "digit" | "letter" | "text";
+  task: "digit" | "letter" | "text" | "auto";
+  /** Weight files loaded on the backend for this selection. */
+  weights: string;
   accuracy: number;
   params: string;
   description: string;
@@ -26,12 +29,26 @@ export interface ModelInfo {
 
 export const MODELS: ModelInfo[] = [
   {
+    key: "auto",
+    name: "Auto Digit + Letter",
+    framework: "Keras + PyTorch",
+    architecture: "Digit CNN + Letter CNN, per-character confidence routing",
+    classes: "0-9, A-Z",
+    task: "auto",
+    weights: "digit_cnn_model.keras + letter_customcnn.pth",
+    accuracy: 0.88,
+    params: "3.6M",
+    description:
+      "Segments the input into characters and sends each one to both classifiers, keeping the more confident answer. Use this for mixed digit/letter handwriting.",
+  },
+  {
     key: "digit_cnn_model.keras",
     name: "Digit CNN",
     framework: "Keras / TensorFlow",
     architecture: "3× Conv2D + BatchNorm + Dense(10)",
     classes: "0-9",
     task: "digit",
+    weights: "digit_cnn_model.keras",
     accuracy: 0.9932,
     params: "1.2M",
     description: "Isolated handwritten digit classifier trained on the MNIST-style numbers dataset.",
@@ -43,6 +60,7 @@ export const MODELS: ModelInfo[] = [
     architecture: "Custom CNN 4 blocks + Dropout + Dense(26)",
     classes: "A-Z",
     task: "letter",
+    weights: "letter_customcnn.pth",
     accuracy: 0.9691,
     params: "2.4M",
     description: "Single uppercase English character classifier trained on the EMNIST-letters split.",
@@ -54,6 +72,7 @@ export const MODELS: ModelInfo[] = [
     architecture: "CNN backbone + BiLSTM + CTC decoder",
     classes: "A-Z sequences",
     task: "text",
+    weights: "best_crnn_model.pt",
     accuracy: 0.9214,
     params: "8.7M",
     description: "Sequence recognition model that reads whole handwritten words without pre-segmentation.",
@@ -68,7 +87,9 @@ export const DIGIT_LABELS = Array.from({ length: 10 }, (_, i) => String(i));
 export const LETTER_LABELS = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i));
 
 export function labelsForTask(task: ModelInfo["task"]): string[] {
-  return task === "digit" ? DIGIT_LABELS : LETTER_LABELS;
+  if (task === "digit") return DIGIT_LABELS;
+  if (task === "auto") return [...DIGIT_LABELS, ...LETTER_LABELS];
+  return LETTER_LABELS;
 }
 
 export interface BoundingBox {

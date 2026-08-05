@@ -14,7 +14,7 @@ import { Activity, Gauge, Layers, Timer } from "lucide-react";
 import { Header } from "@/components/Header";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { MODELS, DIGIT_LABELS, formatConfidence } from "@/lib/hnrs";
+import { MODELS, DIGIT_LABELS, formatConfidence, modelByKey } from "@/lib/hnrs";
 import { historyQueryKey, listPredictions } from "@/services/historyService";
 
 export const Route = createFileRoute("/evaluation")({
@@ -79,7 +79,7 @@ function ModelEvaluation() {
     return { runs: data.length, avgConfidence, avgLatency, trend };
   }, [data]);
 
-  const matrix = confusionMatrix(DIGIT_LABELS, MODELS[0]!.accuracy);
+  const matrix = confusionMatrix(DIGIT_LABELS, modelByKey("digit_cnn_model.keras").accuracy);
 
   return (
     <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -115,7 +115,7 @@ function ModelEvaluation() {
           Task 3 · registered model weights
         </p>
         <h2 className="mt-1 text-lg font-semibold">Model comparison</h2>
-        <div className="mt-4 grid gap-4 lg:grid-cols-3">
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
           {MODELS.map((model) => (
             <article key={model.key} className="rounded-xl border border-border bg-secondary/30 p-4">
               <div className="flex items-center justify-between gap-2">
@@ -126,7 +126,7 @@ function ModelEvaluation() {
               <dl className="mt-3 space-y-1 font-mono text-[11px] text-muted-foreground">
                 <div className="flex justify-between">
                   <dt>weights</dt>
-                  <dd className="text-foreground">{model.key}</dd>
+                  <dd className="text-foreground">{model.weights}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt>framework</dt>

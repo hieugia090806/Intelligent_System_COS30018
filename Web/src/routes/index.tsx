@@ -92,7 +92,7 @@ function csvToDataUrl(text: string): string | null {
 function Dashboard() {
   const queryClient = useQueryClient();
   const infer = useServerFn(runInference);
-  const [modelKey, setModelKey] = useState<ModelKey>("digit_cnn_model.keras");
+  const [modelKey, setModelKey] = useState<ModelKey>("auto");
   const [inputType, setInputType] = useState<InputType>("Interactive Canvas");
   const [source, setSource] = useState<string | null>(null);
   const [preprocessed, setPreprocessed] = useState<PreprocessResult | null>(null);
@@ -214,7 +214,7 @@ function Dashboard() {
           </div>
           <div className="rounded-lg border border-border bg-secondary/40 p-3">
             <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Weights</p>
-            <p className="mt-1 font-mono text-xs">../Models/{model.key}</p>
+            <p className="mt-1 font-mono text-xs">../Models/{model.weights}</p>
           </div>
         </div>
       </section>
