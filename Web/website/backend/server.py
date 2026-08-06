@@ -209,8 +209,132 @@ def to_ink_mask(image_bytes: bytes) -> np.ndarray:
         mask = 255 - mask
     return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
 
+def reference_char_width(boxes: List[List[int]]) -> float:
+    """Typical width of a single glyph, ignoring boxes that are obviously several glyphs."""
+    uprights = [w for _, _, w, h in boxes if w <= 1.15 * h]
+    if uprights:
+        return float(np.median(uprights))
+    return float(np.median([h for _, _, _, h in boxes]))
+
+def candidate_cuts(profile: np.ndarray, ref_width: float, limit: int = 8) -> List[int]:
+    """Columns where touching glyphs plausibly meet: thin local minima of the ink profile."""
+    width = len(profile)
+    min_gap = max(2, int(round(ref_width * 0.3)))
+    interior = profile[min_gap:width - min_gap]
+    if len(interior) < 3:
+        return []
+
+    ink = profile[profile > 0]
+    ceiling = 0.75 * float(ink.mean()) if len(ink) else 0.0
+    minima = [
+        i + min_gap
+        for i in range(1, len(interior) - 1)
+        if interior[i] <= interior[i - 1]
+        and interior[i] <= interior[i + 1]
+        and interior[i] <= ceiling
+    ]
+
+    accepted: List[int] = []
+    for cut in sorted(minima, key=lambda c: (profile[c], abs(c - width / 2))):
+        if all(abs(cut - other) >= min_gap for other in accepted):
+            accepted.append(cut)
+        if len(accepted) >= limit:
+            break
+    return sorted(accepted)
+
+def tighten(mask: np.ndarray, box: List[int], start: int, end: int) -> Optional[List[int]]:
+    """Tight bounding box of the ink inside columns [start, end) of `box`."""
+    x, y, _, h = box
+    ys, xs = np.nonzero(mask[y:y + h, x + start:x + end])
+    if len(xs) == 0:
+        return None
+    return [
+        x + start + int(xs.min()),
+        y + int(ys.min()),
+        int(xs.max() - xs.min()) + 1,
+        int(ys.max() - ys.min()) + 1,
+    ]
+
+# a cut only pays off when each piece is recognised at better than this confidence
+SPLIT_BONUS = -np.log(0.55)
+
+def split_and_classify(mask: np.ndarray, box: List[int], ref_width: float, task: str) -> List[dict]:
+    """Read one component, cutting it into glyphs when that makes the classifiers happier.
+
+    Over-segments at thin columns, then picks the sequence of pieces maximising
+    sum(log confidence + SPLIT_BONUS - width penalty) by dynamic programming, so a cut is
+    only kept when both pieces are recognised confidently.
+    """
+    x, y, w, h = box
+
+    def classify(start: int, end: int) -> Optional[dict]:
+        piece = tighten(mask, box, start, end)
+        if piece is None:
+            return None
+        px, py, pw, ph = piece
+        prediction = classify_character(to_mnist_tensor(mask[py:py + ph, px:px + pw]), task)
+        prediction["box"] = {"x": px, "y": py, "width": pw, "height": ph}
+        return prediction
+
+    whole = classify(0, w)
+    if whole is None:
+        return []
+    if ref_width <= 0 or w < 1.4 * ref_width:
+        return [whole]
+
+    profile = (mask[y:y + h, x:x + w] > 0).sum(axis=0).astype(np.float32)
+    kernel = max(3, int(round(ref_width * 0.15)) | 1)
+    profile = np.convolve(profile, np.ones(kernel) / kernel, mode="same")
+
+    cuts = candidate_cuts(profile, ref_width)
+    if not cuts:
+        return [whole]
+
+    points = [0] + cuts + [w]
+    cache: dict = {}
+
+    def score(i: int, j: int) -> Optional[tuple]:
+        if (i, j) not in cache:
+            piece_width = points[j] - points[i]
+            if piece_width < 0.25 * ref_width:
+                cache[(i, j)] = None
+            else:
+                prediction = whole if (i, j) == (0, len(points) - 1) else classify(points[i], points[j])
+                if prediction is None:
+                    cache[(i, j)] = None
+                else:
+                    ratio = piece_width / ref_width
+                    penalty = 2.0 * max(0.0, abs(ratio - 1.0) - 0.4)
+                    value = np.log(max(prediction["confidence"], 1e-6)) + SPLIT_BONUS - penalty
+                    cache[(i, j)] = (float(value), prediction)
+        return cache[(i, j)]
+
+    best = [(-np.inf, None)] * len(points)
+    best[0] = (0.0, None)
+    for j in range(1, len(points)):
+        for i in range(j):
+            if best[i][0] == -np.inf:
+                continue
+            scored = score(i, j)
+            if scored is None:
+                continue
+            total = best[i][0] + scored[0]
+            if total > best[j][0]:
+                best[j] = (total, (i, scored[1]))
+
+    if best[-1][1] is None:
+        return [whole]
+
+    path = []
+    node = len(points) - 1
+    while node > 0:
+        previous, prediction = best[node][1]
+        path.append(prediction)
+        node = previous
+    return list(reversed(path))
+
 def segment_characters(mask: np.ndarray) -> List[List[int]]:
-    """Left-to-right character boxes from connected components, merging split strokes."""
+    """Left-to-right component boxes from connected components, merging split strokes."""
     height, width = mask.shape
     count, _, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
     boxes = []
@@ -239,6 +363,16 @@ def segment_characters(mask: np.ndarray) -> List[List[int]]:
     if not merged:
         merged = [[0, 0, width, height]]
     return merged
+
+def read_characters(mask: np.ndarray, task: str) -> List[dict]:
+    """Segment the page into glyphs (splitting touching ones) and classify each of them."""
+    boxes = segment_characters(mask)
+    ref_width = reference_char_width(boxes)
+    characters: List[dict] = []
+    for box in boxes:
+        characters.extend(split_and_classify(mask, box, ref_width, task))
+    characters.sort(key=lambda c: c["box"]["x"])
+    return characters
 
 def to_mnist_tensor(crop: np.ndarray) -> np.ndarray:
     """MNIST-style normalisation: 20x20 aspect-preserving fit, centered by mass in 28x28."""
@@ -351,15 +485,8 @@ async def predict(req: InferenceRequest):
             avg_conf = decoded["confidence"]
             models_used = {"best_crnn_model.pt"}
         else:
-            boxes = segment_characters(mask)
-            characters = []
-            models_used = set()
-            for x, y, w, h in boxes:
-                prediction = classify_character(to_mnist_tensor(mask[y:y + h, x:x + w]), task)
-                prediction["box"] = {"x": x, "y": y, "width": w, "height": h}
-                characters.append(prediction)
-                models_used.add(prediction["model"])
-
+            characters = read_characters(mask, task)
+            models_used = {c["model"] for c in characters}
             local_result = "".join(c["char"] for c in characters)
             confidences = [c["confidence"] for c in characters]
             avg_conf = float(np.mean(confidences)) if confidences else 0.0
